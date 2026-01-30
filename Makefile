@@ -19,6 +19,8 @@ DEFINES :=
 TARGET_N64 ?= 0
 # Build for Emscripten/WebGL
 TARGET_WEB ?= 0
+# Build for Xbox 360 libXenon
+TARGET_XENON ?= 1
 # Compiler to use (ido or gcc)
 
 
@@ -26,8 +28,17 @@ TARGET_WEB ?= 0
 #   ido - uses the SGI IRIS Development Option compiler, which is used to build
 #         an original matching N64 ROM
 #   gcc - uses the GNU C Compiler
-COMPILER ?= ido
+COMPILER ?= gcc
 $(eval $(call validate-option,COMPILER,ido gcc))
+
+# check and include LibXenon rules
+ifeq ($(TARGET_XENON),1)
+  ifeq ($(strip $(DEVKITXENON)),)
+    $(error "Please set DEVKITXENON in your environment. export DEVKITXENON=<path to>devkitXenon")
+  endif
+
+  include $(DEVKITXENON)/rules
+endif
 
 # Automatic settings only for ports
 ifeq ($(TARGET_N64),0)
@@ -36,12 +47,14 @@ ifeq ($(TARGET_N64),0)
   NON_MATCHING := 1
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
-  ifeq ($(TARGET_WEB),0)
-    ifeq ($(OS),Windows_NT)
-      TARGET_WINDOWS := 1
-    else
-      # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
-      TARGET_LINUX := 1
+  ifeq ($(TARGET_XENON),0)
+    ifeq ($(TARGET_WEB),0)
+      ifeq ($(OS),Windows_NT)
+        TARGET_WINDOWS := 1
+      else
+        # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
+        TARGET_LINUX := 1
+      endif
     endif
   endif
 
@@ -53,8 +66,13 @@ ifeq ($(TARGET_N64),0)
       endif
     endif
   else
-    # On others, default to OpenGL
-    ENABLE_OPENGL ?= 1
+    ifeq ($(TARGET_XENON),1)
+      # i dunno
+      ENABLE_OPENGL ?= 0
+    else
+      # On others, default to OpenGL
+      ENABLE_OPENGL ?= 1
+    endif
   endif
 
   # Sanity checks
@@ -272,6 +290,8 @@ ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
 else ifeq ($(TARGET_WEB),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
+else ifeq ($(TARGET_XENON),1)
+  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_xenon
 else
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
 endif
@@ -404,6 +424,11 @@ else
   $(error Unable to detect a suitable MIPS toolchain installed)
 endif
 
+# Xenon cross compile
+ifeq ($(TARGET_XENON),1)
+  CROSS := xenon-
+endif
+
 AS        := $(CROSS)as
 ifeq ($(COMPILER),gcc)
   CC      := $(CROSS)gcc
@@ -429,7 +454,11 @@ TARGET_CFLAGS := -nostdinc -DTARGET_N64 -D_LANGUAGE_C
 CC_CFLAGS := -fno-builtin
 
 # Check code syntax with host compiler
+ifeq ($(TARGET_XENON),1)
+CC_CHECK := xenon-gcc
+else
 CC_CHECK := gcc
+endif
 CC_CHECK_CFLAGS := -fsyntax-only -fsigned-char $(CC_CFLAGS) $(TARGET_CFLAGS) -std=gnu90 -Wall -Wextra -Wno-format-security -Wno-main -DNON_MATCHING -DAVOID_UB $(DEF_INC_CFLAGS)
 
 # C compiler options
@@ -456,21 +485,25 @@ export LANG := C
 
 else # TARGET_N64
 
-AS := as
-ifneq ($(TARGET_WEB),1)
-  CC := gcc
-  CXX := g++
-else
-  CC := emcc
+# Xenon uses its own compiler
+ifneq ($(TARGET_XENON),1)
+  AS := as
+  ifneq ($(TARGET_WEB),1)
+    CC := gcc
+    CXX := g++
+  else
+    CC := emcc
+  endif
+
+  OBJDUMP := objdump
+  OBJCOPY := objcopy
+  PYTHON := python3
 endif
 ifeq ($(CXX_FILES),"")
   LD := $(CC)
 else
   LD := $(CXX)
 endif
-OBJDUMP := objdump
-OBJCOPY := objcopy
-PYTHON := python3
 
 # Platform-specific compiler and linker flags
 ifeq ($(TARGET_WINDOWS),1)
@@ -484,6 +517,12 @@ endif
 ifeq ($(TARGET_WEB),1)
   PLATFORM_CFLAGS  := -DTARGET_WEB
   PLATFORM_LDFLAGS := -lm -no-pie -s TOTAL_MEMORY=20MB -g4 --source-map-base http://localhost:8080/ -s "EXTRA_EXPORTED_RUNTIME_METHODS=['callMain']"
+endif
+ifeq ($(TARGET_XENON),1)
+  LIBS  :=	-lxenon -lm -lfat # required by LibXenon
+
+  PLATFORM_CFLAGS  := -DTARGET_XENON -g $(OPT_FLAGS) -Wall $(MACHDEP) -I$(LIBXENON_INC)
+  PLATFORM_LDFLAGS := -g $(MACHDEP) -Wl,--gc-sections -Wl,-Map,$(notdir $@).map -L$(LIBXENON_LIB)
 endif
 
 PLATFORM_CFLAGS += -DNO_SEGMENTED_MEMORY -DUSE_SYSTEM_MALLOC
@@ -516,8 +555,13 @@ endif
 
 GFX_CFLAGS += -DWIDESCREEN
 
+ifeq ($(TARGET_XENON),1)
+CC_CHECK := $(CC) -fsyntax-only -fsigned-char -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
+CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
+else
 CC_CHECK := $(CC) -fsyntax-only -fsigned-char -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
 CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv -march=native
+endif
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(foreach d,$(DEFINES),--defsym $(d))
 
@@ -526,12 +570,17 @@ LDFLAGS := $(PLATFORM_LDFLAGS) $(GFX_LDFLAGS)
 endif
 
 # Prefer clang as C preprocessor if installed on the system
-ifneq (,$(call find-command,clang))
-  CPP      := clang
-  CPPFLAGS := -E -P -x c -Wno-trigraphs $(DEF_INC_CFLAGS)
-else
-  CPP      := cpp
+ifeq ($(TARGET_XENON),1)
+  CPP      := xenon-cpp
   CPPFLAGS := -P -Wno-trigraphs $(DEF_INC_CFLAGS)
+else
+  ifneq (,$(call find-command,clang))
+    CPP      := clang
+    CPPFLAGS := -E -P -x c -Wno-trigraphs $(DEF_INC_CFLAGS)
+  else
+    CPP      := cpp
+    CPPFLAGS := -P -Wno-trigraphs $(DEF_INC_CFLAGS)
+  endif
 endif
 
 #==============================================================================#
@@ -943,7 +992,9 @@ $(EXE): $(O_FILES) $(MIO0_FILES:.mio0=.o) $(ULTRA_O_FILES) $(GODDARD_O_FILES)
 	$(LD) -L $(BUILD_DIR) -o $@ $(O_FILES) $(ULTRA_O_FILES) $(GODDARD_O_FILES) $(LDFLAGS)
 endif
 
-
+# Xenon targets
+$(OUTPUT).elf32: $(OUTPUT).elf
+$(OUTPUT).elf: all
 
 .PHONY: all clean distclean default diff test load libultra
 # with no prerequisites, .SECONDARY causes no intermediate target to be removed

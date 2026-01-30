@@ -1,4 +1,7 @@
-# Super Mario 64 Port
+# Super Mario 64 Native Port for Xbox 360
+
+This port uses [libxenon](https://github.com/Free60Project/libxenon), a toolchain for creating legal, open source homebrew for the Xbox 360.
+To run this on your console, download the .elf32 file from the releases and run it with XeLL or Aurora.
 
 - This repo contains a full decompilation of Super Mario 64 (J), (U), (E), and (SH).
 - Naming and documentation of the source code and data structures are in progress.
@@ -86,3 +89,10 @@ discuss what you would like to change.
 Run `clang-format` on your code to ensure it meets the project's coding standards.
 
 Official Discord: https://discord.gg/7bcNTPK
+
+# Credits
+
+This SM64 port is heavily based on the [PS4](https://github.com/OsirizX/sm64-port) port.
+Most parts of the drivers were taken from [libSDLXenon](https://github.com/LibXenonProject/libSDLXenon).
+
+Thanks to [Mlcdev01](https://github.com/Mlc01dev) for testing this on real hardware.
